@@ -1,0 +1,2 @@
+# CoxAIPW
+ <!-- badges: start --> [![R-CMD-check](https://github.com/charlesluo1002/CoxAIPW/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/charlesluo1002/CoxAIPW/actions/workflows/R-CMD-check.yaml) <!-- badges: end -->
