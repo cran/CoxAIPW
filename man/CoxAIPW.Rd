@@ -14,7 +14,8 @@ CoxAIPW(
   beta0 = 0,
   min.S = 0.05,
   min.PS = 0.1,
-  weights = NULL
+  weights = NULL,
+  random_censoring = FALSE
 )
 }
 \arguments{
@@ -42,9 +43,11 @@ random forest, and the package 'twang' (gradient boosted logistic regression).}
 Default to 0.1}
 
 \item{weights}{a vector of length equal to the samples size that assigns weight to each observation. Also used in Bayesian Bootstrap. Default to NULL (equal weights).}
+
+\item{random_censoring}{a logical variable indicating whether random censoring assumption is assumed. If set to TRUE, neither IPCW nor augmentation with respect to censoring is applied. Default to FALSE.}
 }
 \value{
-a list object containing 'beta' and 'model_se'. 'beta' is the estimated log hazard ratio, 'model_se' is the model-based asymptotic standard error estimator used for inference.
+a list object containing 'beta', 'model_se', 'Lambda0', 'survival0' and 'survival1'. 'beta' is the estimated log hazard ratio, 'model_se' is the model-based asymptotic standard error estimator used for inference, 'Lambda0' is the estimated cumulative baseline hazard function, evaluated on each follow up time, and 'survival0' and 'survival1' are the estimated survival curves, evaluated on each follow up time, for treatment group 0 and 1 respectively.
 }
 \description{
 Doubly robust estimation of two-group log hazard ratio under the Cox marginal structural model, also works with informative censoring.
@@ -59,7 +62,14 @@ data = data.frame(
   age = cancer$age)
 aipw = CoxAIPW(data)
 
-# extract beta and model SE estimate
+# extract beta and model SE.
 logHR = aipw$beta
 modelSE = aipw$model_se
+
+# extract cumulative baseline hazard function.
+cumbase = aipw$Lambda0
+
+# extract survival curve for group 0 and survival curve for group 1.
+surv0 = aipw$survival0
+surv1 = aipw$survival1
 }

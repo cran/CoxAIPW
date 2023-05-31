@@ -17,7 +17,8 @@
 #' @param min.PS the minimum threshold for estimated propensity score, any estimated value below min.PS or above 1-min.PS is set to min.PS or 1-min.PS to avoid exploding gradient.
 #' Default to 0.1
 #' @param weights a vector of length equal to the samples size that assigns weight to each observation. Also used in Bayesian Bootstrap. Default to NULL (equal weights).
-#' @return a list object containing 'beta' and 'model_se'. 'beta' is the estimated log hazard ratio, 'model_se' is the model-based asymptotic standard error estimator used for inference.
+#' @param random_censoring a logical variable indicating whether random censoring assumption is assumed. If set to TRUE, neither IPCW nor augmentation with respect to censoring is applied. Default to FALSE.
+#' @return a list object containing 'beta', 'model_se', 'Lambda0', 'survival0' and 'survival1'. 'beta' is the estimated log hazard ratio, 'model_se' is the model-based asymptotic standard error estimator used for inference, 'Lambda0' is the estimated cumulative baseline hazard function, evaluated on each follow up time, and 'survival0' and 'survival1' are the estimated survival curves, evaluated on each follow up time, for treatment group 0 and 1 respectively.
 #' @examples
 #' # run Cox AIPW on the cancer data set from survival package
 #' data(cancer, package = 'survival')
@@ -28,9 +29,16 @@
 #'   age = cancer$age)
 #' aipw = CoxAIPW(data)
 #'
-#' # extract beta and model SE estimate
+#' # extract beta and model SE.
 #' logHR = aipw$beta
 #' modelSE = aipw$model_se
+#'
+#' # extract cumulative baseline hazard function.
+#' cumbase = aipw$Lambda0
+#'
+#' # extract survival curve for group 0 and survival curve for group 1.
+#' surv0 = aipw$survival0
+#' surv1 = aipw$survival1
 #' @export
 #' @import stats survival randomForestSRC polspline tidyr ranger pracma gbm
 
@@ -47,7 +55,8 @@ CoxAIPW <-
            beta0 = 0,
            min.S = 0.05,
            min.PS = 0.1,
-           weights = NULL) {
+           weights = NULL,
+           random_censoring = FALSE) {
     # Estimate PS, S_t and S_c using k-fold cross-fitting
     data = as.data.frame(data)#[sample(nrow(data)),]
     colnames(data)[1:3] = c('X', 'Delta', 'A')
@@ -325,7 +334,7 @@ CoxAIPW <-
     Z = as.matrix(data[, -(1:3)])
     p = ncol(Z)
     X.sort = sort(unique(X))
-    event_rank = pmin(n_res, rank(X, ties.method = 'first'))
+    event_rank = sapply(X, function(x) which(x == X.sort))
 
 
     # weight trimming
@@ -342,6 +351,11 @@ CoxAIPW <-
     PS[PS < min.PS] = min.PS
     PS[PS > (1 - min.PS)] = 1 - min.PS
 
+    if (random_censoring) {
+      S_c0[S_c0 >= 0] = 1
+      S_c1[S_c1 >= 0] = 1
+    }
+
     # product weight trimming
     S_t0c0 = S_t0 * S_c0
     S_t1c1 = S_t1 * S_c1
@@ -357,16 +371,16 @@ CoxAIPW <-
       tabulate(x, nbins = n_res))) * Delta # n x n_res
 
     # fixed quantities
-    Lambda_c0 = -log(S_c0) # n x n_res
+    Lambda_c0 = -log(S_c0) # n x n_res  (sample x time)
     lambda_c0 = t(apply(Lambda_c0, 1, function(x)
       c(x[1], diff(x))))  # n x n_res
-    Lambda_c1 = -log(S_c1) # n x n_res
+    Lambda_c1 = -log(S_c1) # n x n_res  (sample x time)
     lambda_c1 = t(apply(Lambda_c1, 1, function(x)
       c(x[1], diff(x))))  # n x n_res
     dNc = t(sapply(event_rank, function(x)
       tabulate(x, nbins = n_res))) * Delta_c # n x n_res
-    PS0J0 = t(apply((dNc - Y * lambda_c0) / S_t0c0PS0, 1, cumsum))   # n x n_res
-    PS1J1 = t(apply((dNc - Y * lambda_c1) / S_t1c1PS1, 1, cumsum))   # n x n_res
+    PS0J0 = t(apply((dNc - Y * lambda_c0) / S_t0c0PS0, 1, cumsum))   # n x n_res  (sample x time)
+    PS1J1 = t(apply((dNc - Y * lambda_c1) / S_t1c1PS1, 1, cumsum))   # n x n_res  (sample x time)
     S_t = A * S_t1 + (1 - A) * S_t0
     dS_t = t(apply(S_t, 1, function(x)
       c(x[1] - 1, diff(x))))
@@ -375,6 +389,11 @@ CoxAIPW <-
     dS_t1 = t(apply(S_t1, 1, function(x)
       c(x[1] - 1, diff(x))))
     w = A / PS + (1 - A) / (1 - PS)
+
+    if (random_censoring) {
+      PS0J0[PS0J0 != 0] = 0
+      PS1J1[PS1J1 != 0] = 0
+    }
 
     # fixed intermediate quantities
     calc_N_summand_a = function(a, l)
@@ -404,7 +423,7 @@ CoxAIPW <-
       sum(dN1 - calc_A_bar(beta) * dN0) / n
     calc_dU = function(beta)
       sum((calc_A_bar(beta) ^ 2 - calc_A_bar(beta)) * dN0) / n
-    beta = suppressWarnings(newtonRaphson(calc_U, beta0, dfun = calc_dU)$root)
+    beta = newtonRaphson(calc_U, beta0, dfun = calc_dU)$root
 
     # model se
     A_bar = calc_A_bar(beta)  # n x n_res
@@ -425,5 +444,19 @@ CoxAIPW <-
     )
     nu = calc_dU(beta)
     model_se = sqrt(K / nu ^ 2 / n)
-    return(list(beta = beta, model_se = model_se))
+
+    # Lambda0
+    Lambda0 = cumsum(colMeans(dLambda0[!duplicated(dLambda0), ]))
+    survival0 = exp(-Lambda0)
+    survival1 = exp(-Lambda0 * exp(beta))
+    names(Lambda0) = names(survival0) = names(survival1) = X.sort.full
+    return(
+      list(
+        beta = beta,
+        model_se = model_se,
+        Lambda0 = Lambda0,
+        survival0 = survival0,
+        survival1 = survival1
+      )
+    )
   }
