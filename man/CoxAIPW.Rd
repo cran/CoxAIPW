@@ -10,12 +10,13 @@ CoxAIPW(
   Cmod = "Cox",
   PSmod = "logit",
   tau = NULL,
-  k = 2,
+  k = 5,
   beta0 = 0,
   min.S = 0.05,
   min.PS = 0.1,
   weights = NULL,
-  random_censoring = FALSE
+  augmentation = "AIPTCW",
+  crossFit = TRUE
 )
 }
 \arguments{
@@ -44,13 +45,15 @@ Default to 0.1}
 
 \item{weights}{a vector of length equal to the samples size that assigns weight to each observation. Also used in Bayesian Bootstrap. Default to NULL (equal weights).}
 
-\item{random_censoring}{a logical variable indicating whether random censoring assumption is assumed. If set to TRUE, neither IPCW nor augmentation with respect to censoring is applied. Default to FALSE.}
+\item{augmentation}{a string indicating the type of augmention to consider. 'AIPTCW' performs augmented inverse probability of treatment and censoring weighting, which works for observational data with informative censoring. 'AIPTW' performs augmented inverse probability of treatment weighting, which only works under observational data with random censoring. 'AIPCW' performs augmented inverse probability of censoring weighting, which only works under randomized study with informative censoring. Default to 'AIPTCW'.}
+
+\item{crossFit}{a logical variable indicating whether to apply cross-fitting. If set to FALSE, all three nuisance function estimators 'Tmod', 'Cmod', and 'PSmod' need to be root-n. Default to TRUE.}
 }
 \value{
-a list object containing 'beta', 'model_se', 'Lambda0', 'survival0' and 'survival1'. 'beta' is the estimated log hazard ratio, 'model_se' is the model-based asymptotic standard error estimator used for inference, 'Lambda0' is the estimated cumulative baseline hazard function, evaluated on each follow up time, and 'survival0' and 'survival1' are the estimated survival curves, evaluated on each follow up time, for treatment group 0 and 1 respectively.
+a list object containing 'beta', 'model_se', 'Lambda0', 'survival0', 'survival1' and 'beta_t_plot'. 'beta' is the estimated log hazard ratio, 'model_se' is the model-based asymptotic standard error estimator used for inference, 'Lambda0' is the estimated cumulative baseline hazard function, evaluated on each follow up time, and 'survival0' and 'survival1' are the estimated survival curves, evaluated on each follow up time, for treatment group 0 and 1 respectively. 'beta_t_plot' is a list made up of an x-values vector and a y-values vector, which leads to a plot of time-varying log hazard ratio beta(t) against time t after applying loess or spline smoothing.
 }
 \description{
-Doubly robust estimation of two-group log hazard ratio under the Cox marginal structural model, also works with informative censoring.
+Doubly robust estimation of two-group log hazard ratio under the Cox marginal structural model, works for observational data with informative censoring.
 }
 \examples{
 # run Cox AIPW on the cancer data set from survival package
@@ -67,9 +70,17 @@ logHR = aipw$beta
 modelSE = aipw$model_se
 
 # extract cumulative baseline hazard function.
-cumbase = aipw$Lambda0
+cumBaseHaz = aipw$Lambda0
 
 # extract survival curve for group 0 and survival curve for group 1.
 surv0 = aipw$survival0
 surv1 = aipw$survival1
+
+# extract x and y values for a plot of time-varying log hazard ratio beta(t).
+x = aipw$beta_t_plot$x
+y = aipw$beta_t_plot$y
+# library(splines)
+# spline_fit = lm(y ~ ns(x, df=2, intercept =F))
+# X = seq(0, max(x), length = 40)
+# plot(X, predict(spline_fit, newdata = data.frame(x = X)), type = 'l')
 }
